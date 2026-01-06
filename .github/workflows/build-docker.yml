@@ -1,0 +1,109 @@
+name: Build Docker Image
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      deluge_version:
+        description: 'deluge version'
+        required: true
+        type: string
+        default: '2.2.0'
+      libtorrent_version:
+        description: 'libtorrent rasterbar version'
+        required: true
+        type: string
+        default: '1.2.20'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/deluge
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Optimize Disk Space"
+        uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
+        with:
+          operate_sudo: "True"
+          general_include: ".+"
+          general_exclude: ".+"
+          docker_include: ".+"
+          docker_prune: "True"
+          docker_clean: "True"
+          apt_prune: "True"
+          apt_clean: "True"
+          homebrew_prune: "True"
+          homebrew_clean: "True"
+          npm_prune: "True"
+          npm_clean: "True"
+          os_swap: "True"
+
+      - name: Freeing up disk space
+        uses: easimon/maximize-build-space@master
+        with: 
+          root-reserve-mb: 1024
+          swap-size-mb: 1
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Checkout workflow repo
+        uses: actions/checkout@v6
+
+      - name: Move Docker Root to Large Partition
+        run: |
+          sudo mkdir -p ${GITHUB_WORKSPACE}/docker-root
+          
+          sudo systemctl stop docker.socket
+          sudo systemctl stop docker
+          
+          printf '{"data-root": "%s/docker-root"}\n' "$GITHUB_WORKSPACE" | sudo tee /etc/docker/daemon.json > /dev/null
+          
+          sudo rsync -aq /var/lib/docker/ ${GITHUB_WORKSPACE}/docker-root/
+          
+          sudo systemctl start docker.socket
+          sudo systemctl start docker
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set permissions for s6 scripts
+        run: |
+          find rootfs/etc/s6-overlay/s6-rc.d -type f \( -name "run" -o -name "up" \) -exec chmod +x {} +
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
+          build-args: |
+            LIBTORRENT_VERSION=${{ github.event.inputs.libtorrent_version }}
+            DELUGE_VERSION=${{ github.event.inputs.deluge_version }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.event.inputs.deluge_version }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 2
+          keep_minimum_runs: 0

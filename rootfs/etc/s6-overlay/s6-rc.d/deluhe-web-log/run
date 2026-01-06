@@ -1,0 +1,2 @@
+#!/command/with-contenv narch
+exec s6-log -bp -- T 1

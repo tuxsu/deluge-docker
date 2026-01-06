@@ -1,0 +1,2 @@
+#!/command/with-contenv sh
+exec s6-setuidgid deluge deluged -d -c \${DELUGE_CONFIG_DIR} -L info 2>&1
