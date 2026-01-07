@@ -89,6 +89,7 @@ FROM alpine:${ALPINE_VERSION}
 RUN set -eux; \
 	apk add --no-cache \
         python3 \
+		py3-setuptools \
         py3-twisted \
         py3-openssl \
         py3-rencode \
