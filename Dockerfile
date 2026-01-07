@@ -20,16 +20,28 @@ RUN set -eux; \
     mkdir -p /sources/boost-dev; \
     curl -L "https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/boost-${BOOST_VER}-b2-nodocs.tar.xz" -o boost.tar.xz; \
     tar xf boost.tar.xz --strip-components=1 -C /sources/boost-dev; \
-    rm boost.tar.xz
+    rm boost.tar.xz; \
+	cd /sources/boost-dev; \
+    ./bootstrap.sh --with-python=python3; \
+    ./b2 install --with-python --with-system \
+        variant=release link=static threading=multi \
+        cxxflags="-fPIC" \
+        --prefix=/sources/boost_build
+
 RUN set -eux; \
 	wget https://github.com/arvidn/libtorrent/releases/download/v${LIBTORRENT_VERSION}/libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz; \
     tar zxf libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz
 WORKDIR /sources/libtorrent-rasterbar-${LIBTORRENT_VERSION}
 RUN set -eux; \
-	cmake -S . -B release -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_STANDARD=20 \
-    -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+	cmake -S . -B release -GNinja \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_CXX_STANDARD=20 \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+	-DBUILD_SHARED_LIBS=OFF \
+	-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -Dpython-bindings=ON \
-	-DBOOST_INCLUDEDIR=/sources/boost-dev; \
+	-DBOOST_ROOT=/sources/boost_build \
+	-DBoost_NO_SYSTEM_PATHS=ON; \
 	ninja -C release -j$(nproc); \
 	ninja -C release install
 
