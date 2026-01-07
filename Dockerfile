@@ -6,10 +6,10 @@ ARG TARGETARCH
 
 RUN set -eux; \
 	apk add --no-cache \
-		build-base cmake ninja git gettext \
-		python3-dev py3-setuptools py3-wheel \
-		openssl-dev linux-headers curl jq \
-		tar xz boost-dev boost-python3
+        build-base cmake ninja git gettext \
+        python3-dev py3-setuptools py3-wheel py3-pip \
+        openssl-dev linux-headers curl jq \
+        tar xz boost-dev boost-python3
 
 WORKDIR /sources
 RUN set -eux; \
@@ -48,7 +48,7 @@ RUN set -eux; \
     fi; \
     cmake $CMAKE_OPTS; \
 	ninja -C release -j$(nproc); \
-	ninja -C release install
+	DESTDIR=/install_root ninja -C release install
 
 WORKDIR /sources/deluge
 RUN set -eux; \
@@ -77,8 +77,24 @@ FROM alpine
 
 RUN set -eux; \
 	apk add --no-cache \
-    python3 py3-twisted py3-openssl py3-rencode py3-six py3-mako py3-chardet \
-    boost-python3 boost-system libstdc++ openssl ca-certificates shadow xz tzdata
+        python3 \
+        py3-twisted \
+        py3-openssl \
+        py3-rencode \
+        py3-six \
+        py3-mako \
+        py3-chardet \
+        py3-xdg \
+        py3-setuptools \
+        py3-pillow \
+        boost-python3 \
+        boost-system \
+        libstdc++ \
+        openssl \
+        ca-certificates \
+        shadow \
+        xz \
+        tzdata
 
 COPY --from=builder /install_root /
 
