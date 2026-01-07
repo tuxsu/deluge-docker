@@ -5,11 +5,25 @@ ARG DELUGE_VERSION
 ARG TARGETARCH
 
 RUN set -eux; \
-	apk add --no-cache \
-        build-base cmake ninja-build ninja-is-really-ninja git gettext \
-        python3-dev py3-setuptools py3-wheel py3-pip re2c \
-        openssl-dev linux-headers curl jq \
-        tar xz boost-dev boost-python3
+    apk add --no-cache \
+        build-base \
+        cmake \
+        ninja \
+        git \
+        gettext \
+        python3-dev \
+        py3-setuptools \
+        py3-wheel \
+        py3-pip \
+        re2c \
+        openssl-dev \
+        linux-headers \
+        curl \
+        jq \
+        tar \
+        xz \
+        boost-dev \
+        boost-python3
 
 WORKDIR /sources
 RUN set -eux; \
@@ -24,7 +38,7 @@ RUN set -eux; \
         cd /sources/boost-dev; \
         ./bootstrap.sh --with-python=python3; \
         ./b2 install --with-python --with-system \
-            variant=release link=static threading=multi \
+            variant=release link=shared threading=multi \
             cxxflags="-fPIC" \
             --prefix=/sources/boost_build; \
     else \
@@ -40,7 +54,6 @@ RUN set -eux; \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_STANDARD=20 \
         -DCMAKE_INSTALL_PREFIX=/usr \
-        -DBUILD_SHARED_LIBS=OFF \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -Dpython-bindings=ON"; \
     if [ "${LIBTORRENT_VERSION%%.*}" = "2" ]; then \
@@ -58,10 +71,6 @@ RUN set -eux; \
     python3 setup.py install --root=/install_root
 
 RUN set -eux; \
-    PY_PATH=$(python3 -c "import site; print(site.getsitepackages()[0])"); \
-    mkdir -p /install_root${PY_PATH}; \
-    cp -pr /usr/lib/python3*/site-packages/libtorrent* /install_root${PY_PATH}/; \
-    \
     case "$TARGETARCH" in \
       amd64) S6_ARCH=x86_64 ;; arm64) S6_ARCH=aarch64 ;; \
       arm) S6_ARCH=armhf ;; ppc64le) S6_ARCH=powerpc64le ;; \
@@ -85,16 +94,14 @@ RUN set -eux; \
         py3-mako \
         py3-chardet \
         py3-xdg \
-        py3-setuptools \
         py3-pillow \
         boost-python3 \
         boost-system \
         libstdc++ \
         openssl \
         ca-certificates \
-        shadow \
-        xz \
-        tzdata
+        tzdata \
+        shadow
 
 COPY --from=builder /install_root /
 
