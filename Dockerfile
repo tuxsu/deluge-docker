@@ -6,8 +6,8 @@ ARG TARGETARCH
 
 RUN set -eux; \
 	apk add --no-cache \
-        build-base cmake ninja git gettext \
-        python3-dev py3-setuptools py3-wheel py3-pip \
+        build-base cmake ninja-build ninja-is-really-ninja git gettext \
+        python3-dev py3-setuptools py3-wheel py3-pip re2c \
         openssl-dev linux-headers curl jq \
         tar xz boost-dev boost-python3
 
@@ -36,7 +36,7 @@ RUN set -eux; \
     tar zxf libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz
 WORKDIR /sources/libtorrent-rasterbar-${LIBTORRENT_VERSION}
 RUN set -eux; \
-	CMAKE_OPTS="-S . -B release -GNinja \
+	CMAKE_OPTS="-S . -B release -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_STANDARD=20 \
         -DCMAKE_INSTALL_PREFIX=/usr \
@@ -46,7 +46,7 @@ RUN set -eux; \
     if [ "${LIBTORRENT_VERSION%%.*}" = "2" ]; then \
         CMAKE_OPTS="$CMAKE_OPTS -DBOOST_ROOT=/sources/boost_build -DBoost_NO_SYSTEM_PATHS=ON"; \
     fi; \
-    cmake $CMAKE_OPTS; \
+    cmake -Wno-dev $CMAKE_OPTS; \
 	ninja -C release -j$(nproc); \
 	DESTDIR=/install_root ninja -C release install
 
