@@ -23,7 +23,7 @@ on:
         description: 'alpine linux version'
         required: true
         type: string
-        default: '3.18'
+        default: 'latest'
 
 permissions:
   contents: read
