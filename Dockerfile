@@ -9,39 +9,44 @@ RUN set -eux; \
 		build-base cmake ninja git gettext \
 		python3-dev py3-setuptools py3-wheel \
 		openssl-dev linux-headers curl jq \
-		tar xz
+		tar xz boost-dev boost-python3
 
 WORKDIR /sources
 RUN set -eux; \
-    BOOST_TAG=$(curl -sL https://api.github.com/repos/boostorg/boost/releases | jq -r 'map(.name | select(test("boost-[\\d\\.]+$"))) | first'); \
-    BOOST_VER=$(echo $BOOST_TAG | sed 's/boost-//'); \
-    BOOST_UNDERSCORE=$(echo $BOOST_VER | tr '.' '_'); \
-    echo "Downloading Boost ${BOOST_VER}..."; \
-    mkdir -p /sources/boost-dev; \
-    curl -L "https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/boost-${BOOST_VER}-b2-nodocs.tar.xz" -o boost.tar.xz; \
-    tar xf boost.tar.xz --strip-components=1 -C /sources/boost-dev; \
-    rm boost.tar.xz; \
-	cd /sources/boost-dev; \
-    ./bootstrap.sh --with-python=python3; \
-    ./b2 install --with-python --with-system \
-        variant=release link=static threading=multi \
-        cxxflags="-fPIC" \
-        --prefix=/sources/boost_build
+    if [ "${LIBTORRENT_VERSION%%.*}" = "2" ]; then \
+        BOOST_TAG=$(curl -sL https://api.github.com/repos/boostorg/boost/releases | jq -r 'map(.name | select(test("boost-[\\d\\.]+$"))) | first'); \
+        BOOST_VER=$(echo $BOOST_TAG | sed 's/boost-//'); \
+        echo "Downloading Boost ${BOOST_VER} for Libtorrent 2.x..."; \
+        mkdir -p /sources/boost-dev; \
+        curl -L "https://github.com/boostorg/boost/releases/download/${BOOST_TAG}/boost-${BOOST_VER}-b2-nodocs.tar.xz" -o boost.tar.xz; \
+        tar xf boost.tar.xz --strip-components=1 -C /sources/boost-dev; \
+        rm boost.tar.xz; \
+        cd /sources/boost-dev; \
+        ./bootstrap.sh --with-python=python3; \
+        ./b2 install --with-python --with-system \
+            variant=release link=static threading=multi \
+            cxxflags="-fPIC" \
+            --prefix=/sources/boost_build; \
+    else \
+        echo "Libtorrent version is not 2.x, skipping custom Boost build."; \
+    fi
 
 RUN set -eux; \
 	wget https://github.com/arvidn/libtorrent/releases/download/v${LIBTORRENT_VERSION}/libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz; \
     tar zxf libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz
 WORKDIR /sources/libtorrent-rasterbar-${LIBTORRENT_VERSION}
 RUN set -eux; \
-	cmake -S . -B release -GNinja \
-	-DCMAKE_BUILD_TYPE=Release \
-	-DCMAKE_CXX_STANDARD=20 \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-	-DBUILD_SHARED_LIBS=OFF \
-	-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -Dpython-bindings=ON \
-	-DBOOST_ROOT=/sources/boost_build \
-	-DBoost_NO_SYSTEM_PATHS=ON; \
+	CMAKE_OPTS="-S . -B release -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -Dpython-bindings=ON"; \
+    if [ "${LIBTORRENT_VERSION%%.*}" = "2" ]; then \
+        CMAKE_OPTS="$CMAKE_OPTS -DBOOST_ROOT=/sources/boost_build -DBoost_NO_SYSTEM_PATHS=ON"; \
+    fi; \
+    cmake $CMAKE_OPTS; \
 	ninja -C release -j$(nproc); \
 	ninja -C release install
 
