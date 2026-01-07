@@ -1,0 +1,2 @@
+#!/command/with-contenv sh
+exec /etc/s6-overlay/s6-rc.d/deluge-web/start.sh
