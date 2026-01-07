@@ -34,28 +34,31 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
+        shell: bash
         run: |
-          INPUT_STR=$(echo "${{ github.event.inputs.platforms }}" | tr -d ' ')
-          
+          set -eu
+
+          INPUT_STR="$(echo "${{ github.event.inputs.platforms }}" | tr -d ' ')"
+
           if [ -z "$INPUT_STR" ]; then
             echo "::error::Platform input cannot be empty!"
             exit 1
           fi
 
-          if [[ ! "$INPUT_STR" =~ ^[a-zA-Z0-9/,-]+$ ]]; then
-            echo "::error::Invalid input format! Only platform names and commas are allowed."
+          if [[ ! "$INPUT_STR" =~ ^[a-zA-Z0-9/.,-]+$ ]]; then
+            echo "::error::Invalid input format!"
             exit 1
           fi
 
           JSON_VAL=$(echo "$INPUT_STR" | jq -R 'split(",") | map(select(. != ""))' -c)
 
-          if [ "$JSON_VAL" == "[]" ]; then
-            echo "::error::No valid platforms detected after parsing."
+          if [ "$JSON_VAL" = "[]" ]; then
+            echo "::error::No valid platforms detected"
             exit 1
           fi
 
-          echo "matrix=$JSON_VAL" >> $GITHUB_OUTPUT
-          echo "Successfully validated platforms: $JSON_VAL"
+          echo "matrix=$JSON_VAL" >> "$GITHUB_OUTPUT"
+          echo "Platforms: $JSON_VAL"
 
   build:
     needs: setup
@@ -66,8 +69,8 @@ jobs:
         platform: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     steps:
-      - name: "Optimize Disk Space"
-        uses: "hugoalh/disk-space-optimizer-ghaction@v0.8.1"
+      - name: Optimize Disk Space
+        uses: hugoalh/disk-space-optimizer-ghaction@v0.8.1
         with:
           operate_sudo: "True"
           general_include: ".+"
@@ -83,9 +86,9 @@ jobs:
           npm_clean: "True"
           os_swap: "True"
 
-      - name: Freeing up disk space
+      - name: Maximize build space
         uses: easimon/maximize-build-space@master
-        with: 
+        with:
           root-reserve-mb: 1024
           swap-size-mb: 1
           remove-dotnet: 'true'
@@ -94,20 +97,22 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-      - name: Checkout workflow repo
+      - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Move Docker Root to Large Partition
+      - name: Move Docker root to workspace
+        shell: bash
         run: |
-          sudo mkdir -p ${GITHUB_WORKSPACE}/docker-root
-          
-          sudo systemctl stop docker.socket
-          sudo systemctl stop docker
-          
-          printf '{"data-root": "%s/docker-root"}\n' "$GITHUB_WORKSPACE" | sudo tee /etc/docker/daemon.json > /dev/null
-          
-          sudo rsync -aq /var/lib/docker/ ${GITHUB_WORKSPACE}/docker-root/
-          
+          set -eu
+          sudo mkdir -p "${GITHUB_WORKSPACE}/docker-root"
+
+          sudo systemctl stop docker.socket || true
+          sudo systemctl stop docker || true
+
+          printf '{"data-root":"%s/docker-root"}\n' "$GITHUB_WORKSPACE" | sudo tee /etc/docker/daemon.json >/dev/null
+
+          sudo rsync -a /var/lib/docker/ "${GITHUB_WORKSPACE}/docker-root/" || true
+
           sudo systemctl start docker.socket
           sudo systemctl start docker
 
@@ -123,10 +128,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Set permissions for s6 scripts
+        shell: bash
         run: |
-          find rootfs/etc/s6-overlay/s6-rc.d -type f \( -name "run" -o -name "up" -o -name "*.sh" \) -exec chmod +x {} +
+          if [ -d rootfs/etc/s6-overlay/s6-rc.d ]; then
+            find rootfs/etc/s6-overlay/s6-rc.d -type f \
+              \( -name run -o -name up -o -name "*.sh" \) \
+              -exec chmod +x {} +
+          fi
 
       - name: Build and push by digest
         id: build
@@ -134,15 +144,22 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          outputs: |
+            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             LIBTORRENT_VERSION=${{ github.event.inputs.libtorrent_version }}
             DELUGE_VERSION=${{ github.event.inputs.deluge_version }}
-          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
+        shell: bash
         run: |
+          set -eu
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
+          if [ -z "$digest" ]; then
+            echo "::error::Digest is empty"
+            exit 1
+          fi
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
@@ -175,14 +192,30 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create manifest list and push
-        working-directory: /tmp/digests
+        shell: bash
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *) \
+          set -eu
+          cd /tmp/digests
+
+          files=( * )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No digests found"
+            exit 1
+          fi
+
+          args=()
+          for f in "${files[@]}"; do
+            args+=( "${{ env.IMAGE_NAME }}@sha256:${f}" )
+          done
+
+          echo "Creating manifest with:"
+          printf '  %s\n' "${args[@]}"
+
+          docker buildx imagetools create "${args[@]}" \
             -t ${{ env.IMAGE_NAME }}:${{ github.event.inputs.deluge_version }} \
             -t ${{ env.IMAGE_NAME }}:latest
 
-      - name: Delete workflow runs
+      - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 2
