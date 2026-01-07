@@ -4,6 +4,11 @@ on:
   repository_dispatch:
   workflow_dispatch:
     inputs:
+      platforms:
+        description: 'Select platforms (comma separated)'
+        required: true
+        type: string
+        default: 'linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x'
       deluge_version:
         description: 'deluge version'
         required: true
@@ -23,8 +28,42 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/deluge
 
 jobs:
-  build:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          INPUT_STR=$(echo "${{ github.event.inputs.platforms }}" | tr -d ' ')
+          
+          if [ -z "$INPUT_STR" ]; then
+            echo "::error::Platform input cannot be empty!"
+            exit 1
+          fi
+
+          if [[ ! "$INPUT_STR" =~ ^[a-zA-Z0-9/,-]+$ ]]; then
+            echo "::error::Invalid input format! Only platform names and commas are allowed."
+            exit 1
+          fi
+
+          JSON_VAL=$(echo "$INPUT_STR" | jq -R 'split(",") | map(select(. != ""))' -c)
+
+          if [ "$JSON_VAL" == "[]" ]; then
+            echo "::error::No valid platforms detected after parsing."
+            exit 1
+          fi
+
+          echo "matrix=$JSON_VAL" >> $GITHUB_OUTPUT
+          echo "Successfully validated platforms: $JSON_VAL"
+
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     steps:
       - name: "Optimize Disk Space"
@@ -89,18 +128,59 @@ jobs:
         run: |
           find rootfs/etc/s6-overlay/s6-rc.d -type f \( -name "run" -o -name "up" \) -exec chmod +x {} +
 
-      - name: Build and push image
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x
+          platforms: ${{ matrix.platform }}
           build-args: |
             LIBTORRENT_VERSION=${{ github.event.inputs.libtorrent_version }}
             DELUGE_VERSION=${{ github.event.inputs.deluge_version }}
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.event.inputs.deluge_version }}
-            ${{ env.IMAGE_NAME }}:latest
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *) \
+            -t ${{ env.IMAGE_NAME }}:${{ github.event.inputs.deluge_version }} \
+            -t ${{ env.IMAGE_NAME }}:latest
 
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@v2
