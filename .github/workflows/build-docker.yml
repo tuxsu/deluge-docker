@@ -19,6 +19,11 @@ on:
         required: true
         type: string
         default: '1.2.20'
+      alpine_version:
+        description: 'alpine linux version'
+        required: true
+        type: string
+        default: '3.18'
 
 permissions:
   contents: read
@@ -150,6 +155,7 @@ jobs:
           build-args: |
             LIBTORRENT_VERSION=${{ github.event.inputs.libtorrent_version }}
             DELUGE_VERSION=${{ github.event.inputs.deluge_version }}
+            ALPINE_VERSION=${{ github.event.inputs.alpine_version }}
 
       - name: Export digest
         shell: bash

@@ -1,4 +1,6 @@
-FROM alpine AS builder
+ARG ALPINE_VERSION
+
+FROM alpine:${ALPINE_VERSION} AS builder
 
 ARG LIBTORRENT_VERSION
 ARG DELUGE_VERSION
@@ -82,7 +84,7 @@ RUN set -eux; \
         tar -xJf s6-overlay-${pkg}.tar.xz -C /install_root; \
     done
 
-FROM alpine
+FROM alpine:${ALPINE_VERSION}
 
 RUN set -eux; \
 	apk add --no-cache \
