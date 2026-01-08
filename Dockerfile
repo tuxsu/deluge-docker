@@ -112,8 +112,8 @@ COPY rootfs/ /
 
 ENV PUID=1000 \
     PGID=1000 \
-    DELUGE_CONFIG_DIR=/config \
-    DELUGE_DOWNLOAD_DIR=/downloads \
+    CONFIG_DIR=/config \
+    DOWNLOAD_DIR=/downloads \
     S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 
 EXPOSE 8112 58846
